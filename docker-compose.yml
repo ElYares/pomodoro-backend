@@ -1,0 +1,39 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: pomodoro-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: secret
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - pomodoro_net
+
+  pomodoro-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pomodoro-api
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    ports:
+      - "8080:8080"
+    environment:
+      MONGO_URI: "mongodb://root:secret@mongo:27017/?authSource=admin"
+      MONGO_DB: "pomodoro_service_db"
+      HTTP_PORT: "8080"
+    networks:
+      - pomodoro_net
+
+networks:
+  pomodoro_net:
+    name: pomodoro_net
+    driver: bridge
+
+volumes:
+  mongo_data:
