@@ -21,22 +21,19 @@ import (
 // Su responsabilidad es orquestar la inicialización de configuración,
 // dependencias e infraestructura de red (servidor HTTP).
 func main() {
-	// Carga variables de entorno desde el archivo .env, si existe.
-	// En entornos productivos, lo habitual es depender solo de variables
-	// de entorno del sistema u orquestador (Docker, Kubernetes, etc.).
+	// Cargar variables de entorno
 	_ = godotenv.Load()
 
-	// Construye la configuración de la aplicación a partir de las variables
-	// de entorno y valores por defecto seguros.
+	// Cargar configuración centralizada
 	cfg := config.Load()
 
-	// Inicializa el cliente de MongoDB utilizando la URI configurada.
+	// Inicializar cliente MongoDB
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
 		log.Fatalf("error al conectar a MongoDB: %v", err)
 	}
 
-	// Verifica la conectividad contra la base de datos mediante un ping.
+	// Ping para validar conectividad
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -44,21 +41,30 @@ func main() {
 		log.Fatalf("MongoDB no responde al ping: %v", err)
 	}
 
-	// Obtiene una referencia a la base de datos específica para este servicio.
+	// Seleccionar base de datos
 	db := client.Database(cfg.MongoDatabase)
 
-	// Inyección de dependencias:
-	// Repositorio (persistencia) → Servicio (negocio) → Handler HTTP (transporte).
+	// ---------------------------
+	// Inyección de dependencias
+	// ---------------------------
+
+	// Sessions
 	sessionRepo := repository.NewMongoSessionRepository(db)
 	sessionService := service.NewSessionService(sessionRepo)
 	sessionHandler := httphandler.NewSessionHandler(sessionService)
 
-	// gin.Default configura un router HTTP con middlewares de logging y
-	// recuperación de pánicos activados por defecto.
+	// Tasks
+	taskRepo := repository.NewMongoTaskRepository(db)
+	taskService := service.NewTaskService(taskRepo)
+	taskHandler := httphandler.NewTaskHandler(taskService)
+
+	// ---------------------------
+	// Configuración del router
+	// ---------------------------
+
 	router := gin.Default()
 
-	// Endpoint de salud que permite a herramientas de monitoreo o balanceadores
-	// verificar que el servicio está operativo.
+	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
@@ -66,15 +72,15 @@ func main() {
 		})
 	})
 
-	// Grupo base de la API versionado. A partir de aquí se registran los
-	// endpoints específicos del dominio Pomodoro.
+	// API versionada
 	api := router.Group("/api/v1")
 	{
+		// Registro de módulos
 		sessionHandler.RegisterRoutes(api)
+		taskHandler.RegisterRoutes(api)
 	}
 
-	// Configuración del servidor HTTP. Se utiliza http.Server para tener
-	// mayor control sobre timeouts y apagado ordenado en futuras mejoras.
+	// Configuración del servidor HTTP
 	server := &http.Server{
 		Addr:    ":" + cfg.HTTPPort,
 		Handler: router,
@@ -82,8 +88,7 @@ func main() {
 
 	log.Printf("Pomodoro Service escuchando en puerto %s", cfg.HTTPPort)
 
-	// Inicia el servidor HTTP. Si falla al arrancar, se registra el error
-	// y se termina el proceso con un código de salida no exitoso.
+	// Iniciar servidor
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("error al iniciar el servidor HTTP: %v", err)
 	}
