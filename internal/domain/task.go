@@ -2,6 +2,15 @@ package domain
 
 import "time"
 
+type TaskStatus string
+
+const (
+	TaskStatusPending    TaskStatus = "PENDING"
+	TaskStatusInProgress TaskStatus = "IN_PROGRESS"
+	TaskStatusPaused     TaskStatus = "PAUSED"
+	TaskStatusCompleted  TaskStatus = "COMPLETED"
+)
+
 // Task
 //
 // Representa una tarea creada por un usuario dentro del sistema de productividad.
@@ -18,15 +27,21 @@ import "time"
 // - Completed / CompletedAt: permiten saber si está finalizada
 // - CreatedAt / UpdatedAt: auditoría aplicada por el servicio
 type Task struct {
-	ID          string     `json:"id"`
-	UserID      string     `json:"user_id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description,omitempty"`
-	ProjectID   *string    `json:"project_id,omitempty"`
+	ID          string  `json:"id"`
+	UserID      string  `json:"user_id"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	ProjectID   *string `json:"project_id,omitempty"`
+
+	Status      TaskStatus `json:"status"`
 	Completed   bool       `json:"completed"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	PomodorosCompleted int `json:"pomodoros_completed"`
+	TotalFocusMinutes  int `json:"total_focus_minutes"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TaskRepository
@@ -40,4 +55,9 @@ type TaskRepository interface {
 	Delete(id string) error
 	FindByID(id string) (*Task, error)
 	FindByUser(userID string) ([]*Task, error)
+
+	// Nuevos metodos para metricas pomodoro
+	UpdateStatus(id string, status TaskStatus) error
+	AddRealMinutes(id string, minutes int) error
+	IncrementPomodoroCount(id string) error
 }

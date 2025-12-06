@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 
+	"pomodoro-backend/internal/domain"
 	"pomodoro-backend/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,12 @@ func (h *TaskHandler) RegisterRoutes(rg *gin.RouterGroup) {
 		tasks.GET("/:id", h.getTask)
 		tasks.PUT("/:id", h.updateTask)
 		tasks.DELETE("/:id", h.deleteTask)
+
+		tasks.PATCH("/:id/complete", h.markCompleted)
+
+		tasks.PATCH("/:id/start", h.markInProgress)
+		tasks.PATCH("/:id/pause", h.markPaused)
+		tasks.PATCH("/:id/reopen", h.reopenTask)
 	}
 }
 
@@ -42,6 +49,63 @@ type createTaskRequest struct {
 	Title       string  `json:"title" binding:"required"`
 	Description string  `json:"description"`
 	ProjectID   *string `json:"project_id"`
+}
+
+func (h *TaskHandler) markCompleted(c *gin.Context) {
+	id := c.Param("id")
+
+	err := h.svc.MarkCompleted(id)
+	if err != nil {
+		if err == service.ErrTaskNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tarea no encontrada"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo completar la tarea"})
+		return
+	}
+
+	// Opcional: devolver la tarea actualizada
+	updated, _ := h.svc.GetTask(id)
+	c.JSON(http.StatusOK, updated)
+}
+
+func (h *TaskHandler) markInProgress(c *gin.Context) {
+	id := c.Param("id")
+
+	err := h.svc.UpdateStatus(id, domain.TaskStatusInProgress)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo actualizar el estado"})
+		return
+	}
+
+	updated, _ := h.svc.GetTask(id)
+	c.JSON(http.StatusOK, updated)
+}
+
+func (h *TaskHandler) markPaused(c *gin.Context) {
+	id := c.Param("id")
+
+	err := h.svc.UpdateStatus(id, domain.TaskStatusPaused)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo pausar la tarea"})
+		return
+	}
+
+	updated, _ := h.svc.GetTask(id)
+	c.JSON(http.StatusOK, updated)
+}
+
+func (h *TaskHandler) reopenTask(c *gin.Context) {
+	id := c.Param("id")
+
+	err := h.svc.UpdateStatus(id, domain.TaskStatusPending)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo reabrir la tarea"})
+		return
+	}
+
+	updated, _ := h.svc.GetTask(id)
+	c.JSON(http.StatusOK, updated)
 }
 
 // createTask maneja la creación de una nueva tarea.

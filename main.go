@@ -17,23 +17,22 @@ import (
 	httphandler "pomodoro-backend/internal/transport/http"
 )
 
-// main es el punto de entrada del servicio Pomodoro.
-// Su responsabilidad es orquestar la inicialización de configuración,
-// dependencias e infraestructura de red (servidor HTTP).
 func main() {
-	// Cargar variables de entorno
+
+	// Cargar .env si existe (no obligatorio en Docker)
 	_ = godotenv.Load()
 
-	// Cargar configuración centralizada
 	cfg := config.Load()
 
-	// Inicializar cliente MongoDB
+	// ---------------------------
+	// Conexión a MongoDB
+	// ---------------------------
+
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
 		log.Fatalf("error al conectar a MongoDB: %v", err)
 	}
 
-	// Ping para validar conectividad
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -41,30 +40,55 @@ func main() {
 		log.Fatalf("MongoDB no responde al ping: %v", err)
 	}
 
-	// Seleccionar base de datos
 	db := client.Database(cfg.MongoDatabase)
 
 	// ---------------------------
-	// Inyección de dependencias
+	// Inyección de Repositorios
 	// ---------------------------
 
-	// Sessions
 	sessionRepo := repository.NewMongoSessionRepository(db)
-	sessionService := service.NewSessionService(sessionRepo)
-	sessionHandler := httphandler.NewSessionHandler(sessionService)
-
-	// Tasks
 	taskRepo := repository.NewMongoTaskRepository(db)
-	taskService := service.NewTaskService(taskRepo)
-	taskHandler := httphandler.NewTaskHandler(taskService)
+	cycleRepo := repository.NewMongoCycleRepository(db)
 
 	// ---------------------------
-	// Configuración del router
+	// Inyección de Servicios
+	// ---------------------------
+
+	sessionService := service.NewSessionService(sessionRepo, taskRepo) // <- corregido
+	taskService := service.NewTaskService(taskRepo)
+	cycleService := service.NewCycleService(cycleRepo)
+
+	// ---------------------------
+	// Inyección de Handlers
+	// ---------------------------
+
+	sessionHandler := httphandler.NewSessionHandler(sessionService)
+	taskHandler := httphandler.NewTaskHandler(taskService)
+	_ = cycleService // Pendiente: aún no tienes endpoints para cycles
+
+	// ---------------------------
+	// Router
 	// ---------------------------
 
 	router := gin.Default()
 
-	// Health check
+	// Middleware CORS
+	router.Use(func(c *gin.Context) {
+		// Permitir llamadas desde tu frontend en http://localhost:3000
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	})
+
+	// Health Check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
@@ -72,24 +96,24 @@ func main() {
 		})
 	})
 
-	// API versionada
 	api := router.Group("/api/v1")
 	{
-		// Registro de módulos
 		sessionHandler.RegisterRoutes(api)
 		taskHandler.RegisterRoutes(api)
 	}
 
-	// Configuración del servidor HTTP
+	// ---------------------------
+	// Servidor HTTP
+	// ---------------------------
+
 	server := &http.Server{
 		Addr:    ":" + cfg.HTTPPort,
 		Handler: router,
 	}
 
-	log.Printf("Pomodoro Service escuchando en puerto %s", cfg.HTTPPort)
+	log.Printf("Pomodoro backend escuchando en puerto %s", cfg.HTTPPort)
 
-	// Iniciar servidor
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("error al iniciar el servidor HTTP: %v", err)
+		log.Fatalf("error al iniciar servidor: %v", err)
 	}
 }

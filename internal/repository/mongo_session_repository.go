@@ -48,7 +48,7 @@ func (r *MongoSessionRepository) CreateSession(s *domain.Session) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	doc := domainToMongo(s)
+	doc := domainToMongoSession(s)
 
 	res, err := r.col.InsertOne(ctx, doc)
 	if err != nil {
@@ -72,7 +72,7 @@ func (r *MongoSessionRepository) UpdateSession(s *domain.Session) error {
 		return err
 	}
 
-	doc := domainToMongo(s)
+	doc := domainToMongoSession(s)
 
 	_, err = r.col.ReplaceOne(ctx, bson.M{"_id": oid}, doc)
 	return err
@@ -93,12 +93,12 @@ func (r *MongoSessionRepository) FindByID(id string) (*domain.Session, error) {
 		return nil, err
 	}
 
-	return mongoToDomain(&doc), nil
+	return mongoToDomainSession(&doc), nil
 }
 
 // domainToMongo proyecta una entidad de dominio hacia su representación
 // específica para MongoDB.
-func domainToMongo(s *domain.Session) *mongoSession {
+func domainToMongoSession(s *domain.Session) *mongoSession {
 	return &mongoSession{
 		UserID:        s.UserID,
 		ProjectID:     s.ProjectID,
@@ -116,7 +116,7 @@ func domainToMongo(s *domain.Session) *mongoSession {
 }
 
 // mongoToDomain proyecta un documento de MongoDB hacia la entidad de dominio.
-func mongoToDomain(m *mongoSession) *domain.Session {
+func mongoToDomainSession(m *mongoSession) *domain.Session {
 	id := ""
 	if !m.ID.IsZero() {
 		id = m.ID.Hex()

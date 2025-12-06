@@ -2,6 +2,13 @@ package service
 
 import "errors"
 
-// ErrInvalidStateTransition indica que se intentó aplicar una transición
-// de estado que no es válida para la sesión actual.
-var ErrInvalidStateTransition = errors.New("transición de estado inválida para la sesión")
+// Errores estándar del dominio de servicio
+var (
+	// Sesiones
+	ErrSessionNotFound        = errors.New("session not found")
+	ErrInvalidState           = errors.New("invalid session state")
+	ErrInvalidStateTransition = errors.New("invalid state transition")
+
+	// Tareas
+	ErrTaskNotFound = errors.New("task not found")
+)

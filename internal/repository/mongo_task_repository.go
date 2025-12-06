@@ -11,43 +11,42 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-// MongoTaskRepository
-//
-// Implementación concreta del repositorio de tareas utilizando MongoDB como
-// mecanismo de persistencia. Esta capa traduce estructuras del dominio a
-// documentos BSON y viceversa.
-//
-// Se mantiene completamente aislada del dominio mediante DTOs internos
-// (mongoTask), de forma que cambios en la base de datos no afecten al dominio.
 type MongoTaskRepository struct {
 	col *mongo.Collection
 }
 
-// NewMongoTaskRepository inicializa un repositorio sobre la colección "tasks".
 func NewMongoTaskRepository(db *mongo.Database) *MongoTaskRepository {
 	return &MongoTaskRepository{
 		col: db.Collection("tasks"),
 	}
 }
 
-// mongoTask
-//
-// Estructura interna utilizada para serializar/deserializar documentos BSON
-// desde y hacia MongoDB. Separamos explícitamente este esquema del dominio
-// para evitar acoplamiento directo.
+// -----------------------------
+// Mongo DTO
+// -----------------------------
+
 type mongoTask struct {
 	ID          primitive.ObjectID `bson:"_id,omitempty"`
 	UserID      string             `bson:"user_id"`
 	Title       string             `bson:"title"`
 	Description string             `bson:"description,omitempty"`
 	ProjectID   *string            `bson:"project_id,omitempty"`
-	Completed   bool               `bson:"completed"`
-	CreatedAt   time.Time          `bson:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at"`
-	CompletedAt *time.Time         `bson:"completed_at,omitempty"`
+
+	Status      string     `bson:"status"`
+	Completed   bool       `bson:"completed"`
+	CompletedAt *time.Time `bson:"completed_at,omitempty"`
+
+	PomodorosCompleted int `bson:"pomodoros_completed"`
+	TotalFocusMinutes  int `bson:"total_focus_minutes"`
+
+	CreatedAt time.Time `bson:"created_at"`
+	UpdatedAt time.Time `bson:"updated_at"`
 }
 
-// Create inserta una nueva tarea en la colección de MongoDB.
+// -----------------------------
+// CREATE
+// -----------------------------
+
 func (r *MongoTaskRepository) Create(t *domain.Task) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -59,7 +58,6 @@ func (r *MongoTaskRepository) Create(t *domain.Task) error {
 		return err
 	}
 
-	// El ID generado por Mongo se asigna nuevamente al modelo de dominio.
 	if oid, ok := res.InsertedID.(primitive.ObjectID); ok {
 		t.ID = oid.Hex()
 	}
@@ -67,7 +65,10 @@ func (r *MongoTaskRepository) Create(t *domain.Task) error {
 	return nil
 }
 
-// Update reemplaza el documento asociado utilizando un ReplaceOne completo.
+// -----------------------------
+// UPDATE
+// -----------------------------
+
 func (r *MongoTaskRepository) Update(t *domain.Task) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -78,12 +79,14 @@ func (r *MongoTaskRepository) Update(t *domain.Task) error {
 	}
 
 	doc := domainToMongoTask(t)
-
 	_, err = r.col.ReplaceOne(ctx, bson.M{"_id": oid}, doc)
 	return err
 }
 
-// Delete elimina una tarea directamente por su identificador.
+// -----------------------------
+// DELETE
+// -----------------------------
+
 func (r *MongoTaskRepository) Delete(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -97,7 +100,10 @@ func (r *MongoTaskRepository) Delete(id string) error {
 	return err
 }
 
-// FindByID devuelve una tarea específica si existe en la colección.
+// -----------------------------
+// FIND BY ID
+// -----------------------------
+
 func (r *MongoTaskRepository) FindByID(id string) (*domain.Task, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -116,7 +122,10 @@ func (r *MongoTaskRepository) FindByID(id string) (*domain.Task, error) {
 	return mongoToDomainTask(&doc), nil
 }
 
-// FindByUser obtiene todas las tareas asociadas a un usuario dado.
+// -----------------------------
+// FIND BY USER
+// -----------------------------
+
 func (r *MongoTaskRepository) FindByUser(userID string) ([]*domain.Task, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -128,7 +137,6 @@ func (r *MongoTaskRepository) FindByUser(userID string) ([]*domain.Task, error) 
 	defer cursor.Close(ctx)
 
 	var tasks []*domain.Task
-
 	for cursor.Next(ctx) {
 		var doc mongoTask
 		if err := cursor.Decode(&doc); err != nil {
@@ -140,18 +148,82 @@ func (r *MongoTaskRepository) FindByUser(userID string) ([]*domain.Task, error) 
 	return tasks, nil
 }
 
-// Mapping helpers
-// Convierten entre el modelo de dominio y el modelo de persistencia.
+// -----------------------------
+// MÉTODOS NUEVOS
+// -----------------------------
+
+func (r *MongoTaskRepository) UpdateStatus(id string, status domain.TaskStatus) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.col.UpdateOne(ctx,
+		bson.M{"_id": oid},
+		bson.M{"$set": bson.M{
+			"status":     string(status),
+			"updated_at": time.Now(),
+		}},
+	)
+	return err
+}
+
+func (r *MongoTaskRepository) AddRealMinutes(id string, minutes int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.col.UpdateOne(ctx,
+		bson.M{"_id": oid},
+		bson.M{"$inc": bson.M{
+			"total_focus_minutes": minutes,
+		}},
+	)
+	return err
+}
+
+func (r *MongoTaskRepository) IncrementPomodoroCount(id string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	oid, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.col.UpdateOne(ctx,
+		bson.M{"_id": oid},
+		bson.M{"$inc": bson.M{
+			"pomodoros_completed": 1,
+		}},
+	)
+	return err
+}
+
+// -----------------------------
+// MAPPERS
+// -----------------------------
+
 func domainToMongoTask(t *domain.Task) *mongoTask {
 	return &mongoTask{
-		UserID:      t.UserID,
-		Title:       t.Title,
-		Description: t.Description,
-		ProjectID:   t.ProjectID,
-		Completed:   t.Completed,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
-		CompletedAt: t.CompletedAt,
+		UserID:             t.UserID,
+		Title:              t.Title,
+		Description:        t.Description,
+		ProjectID:          t.ProjectID,
+		Status:             string(t.Status),
+		Completed:          t.Completed,
+		CompletedAt:        t.CompletedAt,
+		PomodorosCompleted: t.PomodorosCompleted,
+		TotalFocusMinutes:  t.TotalFocusMinutes,
+		CreatedAt:          t.CreatedAt,
+		UpdatedAt:          t.UpdatedAt,
 	}
 }
 
@@ -162,14 +234,17 @@ func mongoToDomainTask(m *mongoTask) *domain.Task {
 	}
 
 	return &domain.Task{
-		ID:          id,
-		UserID:      m.UserID,
-		Title:       m.Title,
-		Description: m.Description,
-		ProjectID:   m.ProjectID,
-		Completed:   m.Completed,
-		CreatedAt:   m.CreatedAt,
-		UpdatedAt:   m.UpdatedAt,
-		CompletedAt: m.CompletedAt,
+		ID:                 id,
+		UserID:             m.UserID,
+		Title:              m.Title,
+		Description:        m.Description,
+		ProjectID:          m.ProjectID,
+		Status:             domain.TaskStatus(m.Status),
+		Completed:          m.Completed,
+		CompletedAt:        m.CompletedAt,
+		PomodorosCompleted: m.PomodorosCompleted,
+		TotalFocusMinutes:  m.TotalFocusMinutes,
+		CreatedAt:          m.CreatedAt,
+		UpdatedAt:          m.UpdatedAt,
 	}
 }
