@@ -103,11 +103,11 @@ func (h *SessionHandler) resumeSession(c *gin.Context) {
 	c.JSON(http.StatusOK, session)
 }
 
-// finishSession marca la sesión como finalizada.
+// finishSession marca la sesión como finalizada y devuelve info del ciclo Pomodoro.
 func (h *SessionHandler) finishSession(c *gin.Context) {
 	id := c.Param("id")
 
-	session, err := h.svc.FinishSession(id)
+	session, cycleState, err := h.svc.FinishSession(id)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if err == service.ErrInvalidStateTransition {
@@ -117,5 +117,12 @@ func (h *SessionHandler) finishSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, session)
+	c.JSON(http.StatusOK, gin.H{
+		"session":            session,
+		"total_pomodoros":    cycleState.TotalPomodoros,
+		"index_in_cycle":     cycleState.IndexInCycle, // 1..4
+		"is_cycle_end":       cycleState.IsCycleEnd,   // true si terminó el 4.º
+		"cycles_done":        cycleState.CyclesDone,   // cuántos sets de 4
+		"next_break_minutes": cycleState.NextBreakMin, // 5 o 20
+	})
 }

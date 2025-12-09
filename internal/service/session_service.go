@@ -118,21 +118,20 @@ func (s *SessionService) ResumeSession(id string) (*domain.Session, error) {
 	return session, s.sessionRepo.UpdateSession(session)
 }
 
-//
-// ─────────────────────────────────────────────────────────────
-//   FINALIZAR SESIÓN (FIN DEL FOCUS)
 // ─────────────────────────────────────────────────────────────
 //
-
-func (s *SessionService) FinishSession(id string) (*domain.Session, error) {
+//	FINALIZAR SESIÓN (FIN DEL FOCUS)
+//
+// ─────────────────────────────────────────────────────────────
+func (s *SessionService) FinishSession(id string) (*domain.Session, PomodoroCycleState, error) {
 	session, err := s.sessionRepo.FindByID(id)
 	if err != nil {
-		return nil, ErrSessionNotFound
+		return nil, PomodoroCycleState{}, ErrSessionNotFound
 	}
 
 	if session.State != domain.SessionStateRunning &&
 		session.State != domain.SessionStatePaused {
-		return nil, ErrInvalidStateTransition
+		return nil, PomodoroCycleState{}, ErrInvalidStateTransition
 	}
 
 	now := time.Now()
@@ -140,15 +139,42 @@ func (s *SessionService) FinishSession(id string) (*domain.Session, error) {
 	session.FinishedAt = &now
 	session.UpdatedAt = now
 
-	// Si está ligada a una tarea → sumamos métrica del focus
+	// Estado neutro por defecto (cuando no hay tarea asociada)
+	cycleState := PomodoroCycleState{
+		TotalPomodoros: 0,
+		IndexInCycle:   0,
+		IsCycleEnd:     false,
+		NextBreakMin:   DefaultPomodoroConfig.ShortBreakMinutes,
+		CyclesDone:     0,
+	}
+
+	// Si está ligada a una tarea → sumamos métrica del focus y calculamos ciclo
 	if session.TaskID != nil {
 		focusMinutes := session.FocusMinutes
 
+		// 1Leer la tarea actual para saber cuántos pomodoros llevaba
+		task, errTask := s.taskRepo.FindByID(*session.TaskID)
+		if errTask == nil {
+			totalPomodorosAfter := task.PomodorosCompleted + 1
+
+			// Usa tu helper de pomodoro_cycle.go para saber:
+			// - qué pomodoro del ciclo es
+			// - si toca descanso corto o largo
+			// - cuántos ciclos completos llevas
+			cycleState = ComputePomodoroState(totalPomodorosAfter, DefaultPomodoroConfig)
+		}
+
+		// Actualizar métricas en la tarea (minutos y conteo de pomodoros)
 		_ = s.taskRepo.AddRealMinutes(*session.TaskID, focusMinutes)
 		_ = s.taskRepo.IncrementPomodoroCount(*session.TaskID)
 	}
 
-	return session, s.sessionRepo.UpdateSession(session)
+	// Guardar la sesión actualizada
+	if err := s.sessionRepo.UpdateSession(session); err != nil {
+		return nil, PomodoroCycleState{}, err
+	}
+
+	return session, cycleState, nil
 }
 
 //

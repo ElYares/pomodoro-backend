@@ -27,21 +27,22 @@ const (
 // - Completed / CompletedAt: permiten saber si está finalizada
 // - CreatedAt / UpdatedAt: auditoría aplicada por el servicio
 type Task struct {
-	ID          string  `json:"id"`
-	UserID      string  `json:"user_id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	ProjectID   *string `json:"project_id,omitempty"`
+	ID          string  `bson:"_id,omitempty" json:"id"`
+	UserID      string  `bson:"user_id" json:"user_id"`
+	Title       string  `bson:"title" json:"title"`
+	Description string  `bson:"description" json:"description"`
+	ProjectID   *string `bson:"project_id,omitempty" json:"project_id,omitempty"`
 
-	Status      TaskStatus `json:"status"`
-	Completed   bool       `json:"completed"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Status      TaskStatus `bson:"status" json:"status"`
+	Completed   bool       `bson:"completed" json:"completed"`
+	CompletedAt *time.Time `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
 
-	PomodorosCompleted int `json:"pomodoros_completed"`
-	TotalFocusMinutes  int `json:"total_focus_minutes"`
+	// Métricas
+	PomodorosCompleted int `bson:"pomodoros_completed" json:"pomodoros_completed"`
+	TotalFocusMinutes  int `bson:"total_focus_minutes" json:"total_focus_minutes"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 }
 
 // TaskRepository
